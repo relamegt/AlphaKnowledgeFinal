@@ -40,11 +40,26 @@ export const AuthProvider = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   
-  // ADDED: Refs for adaptive polling
+  // Refs for adaptive polling
   const lastAnnouncementCountRef = useRef(0);
   const pollingIntervalRef = useRef(null);
-  const currentPollingIntervalRef = useRef(5 * 60 * 1000); // Start with 5 minutes
+  const currentPollingIntervalRef = useRef(2 * 60 * 1000); // Reduced to 2 minutes
   const lastKnownUnreadCountRef = useRef(0);
+
+  // FIXED: Create axios instance with token support for production
+  const createAuthenticatedAxios = useCallback(() => {
+    const token = localStorage.getItem('authToken');
+    
+    return axios.create({
+      baseURL: process.env.REACT_APP_API_BASE_URL || 'https://alphaknowledgefinal-1.onrender.com',
+      withCredentials: true,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      },
+      timeout: 30000
+    });
+  }, []);
 
   // Check auth status on mount
   useEffect(() => {
@@ -90,10 +105,9 @@ export const AuthProvider = ({ children }) => {
     return () => { mounted = false; };
   }, []);
 
-  // UPDATED: Smart fetch with return value for adaptive polling
+  // FIXED: Enhanced fetchUnreadCount with proper token authentication
   const fetchUnreadCount = useCallback(async (reason = 'unknown') => {
     if (!user || !user._id) {
-      // console.log('🔔 fetchUnreadCount: No user logged in, skipping API call');
       setUnreadCount(0);
       return 0;
     }
@@ -101,49 +115,57 @@ export const AuthProvider = ({ children }) => {
     const requestKey = `unread-count-${user._id}`;
     
     if (unreadCountTracker.isRequestOngoing(requestKey)) {
-      // console.log(`🔔 fetchUnreadCount (${reason}): Request already in progress, reusing`);
       return unreadCountTracker.getOngoingRequest(requestKey);
     }
 
-    // Check timing to prevent excessive calls (minimum 30 seconds between calls)
+    // Reduced throttling for better responsiveness
     const now = Date.now();
-    if (lastFetchTime && (now - lastFetchTime) < 30000) {
-      // console.log(`🔔 fetchUnreadCount (${reason}): Too recent (${Math.floor((now - lastFetchTime) / 1000)}s ago), skipping`);
-      return unreadCount; // Return current count
+    if (lastFetchTime && (now - lastFetchTime) < 10000) { // 10 seconds
+      console.log(`⚠️ fetchUnreadCount (${reason}): Too recent, returning cached: ${unreadCount}`);
+      return unreadCount;
     }
 
     try {
-      // console.log(`🔔 fetchUnreadCount (${reason}): Making API call at:`, new Date().toLocaleTimeString());
+      console.log(`🔔 fetchUnreadCount (${reason}): Making API call with token`);
       
-      const fetchPromise = axios.get('/api/announcements', { 
-        withCredentials: true 
-      }).then(response => {
+      // CRITICAL: Use authenticated axios instance
+      const authenticatedAxios = createAuthenticatedAxios();
+      
+      const fetchPromise = authenticatedAxios.get('/api/announcements').then(response => {
         const announcements = response.data.announcements || [];
-        // console.log(`🔔 fetchUnreadCount (${reason}): Retrieved ${announcements.length} announcements`);
+        console.log(`📊 Retrieved ${announcements.length} total announcements`);
         
-        // Check if announcement count changed
-        const currentCount = announcements.length;
-        const previousCount = lastAnnouncementCountRef.current;
-        
-        if (currentCount !== previousCount) {
-          // console.log(`🔔 fetchUnreadCount: Announcement count changed ${previousCount} → ${currentCount}, processing unread count`);
-          lastAnnouncementCountRef.current = currentCount;
-        } else if (reason === 'adaptive-polling') {
-          // console.log(`🔔 fetchUnreadCount (${reason}): No new announcements, keeping current unread count: ${unreadCount}`);
-          setLastFetchTime(now);
-          return unreadCount; // Return current count without processing
+        // Better localStorage handling
+        let seenIds = [];
+        try {
+          const seenIdsRaw = localStorage.getItem('seenAnnouncements');
+          seenIds = seenIdsRaw ? JSON.parse(seenIdsRaw) : [];
+          seenIds = Array.isArray(seenIds) ? seenIds : [];
+        } catch (e) {
+          console.warn('Invalid seenAnnouncements in localStorage, resetting');
+          seenIds = [];
+          localStorage.setItem('seenAnnouncements', JSON.stringify([]));
         }
         
-        // Process unread count
-        const seenIds = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
+        const seenSet = new Set(seenIds);
+        console.log(`👀 User has seen ${seenSet.size} announcements`);
         
-        const unread = announcements.filter(ann => {
+        // Enhanced filtering logic
+        const unreadAnnouncements = announcements.filter(ann => {
           const announcementId = ann._id || ann.id;
           if (!announcementId) return false;
           
-          if (ann.readBy && ann.readBy.includes(user._id)) return false;
-          if (seenIds.includes(announcementId)) return false;
+          // Check server-side readBy
+          if (ann.readBy && Array.isArray(ann.readBy) && ann.readBy.includes(user._id)) {
+            return false;
+          }
           
+          // Check localStorage seen
+          if (seenSet.has(announcementId)) {
+            return false;
+          }
+          
+          // Check creation date vs user join date
           if (user.createdAt && ann.createdAt) {
             const announcementDate = new Date(ann.createdAt);
             const userJoinDate = new Date(user.createdAt);
@@ -153,16 +175,17 @@ export const AuthProvider = ({ children }) => {
           return true;
         });
         
-        const newUnreadCount = unread.length;
+        const newUnreadCount = unreadAnnouncements.length;
+        console.log(`🔔 Calculated unread count: ${newUnreadCount}`);
         
-        if (newUnreadCount !== unreadCount) {
-          setUnreadCount(newUnreadCount);
-          // console.log(`🔔 Badge count updated: ${newUnreadCount}/${announcements.length} unread announcements`);
-        } else {
-          // console.log(`🔔 Badge count unchanged: ${newUnreadCount}/${announcements.length} unread announcements`);
-        }
+        // ALWAYS update state to trigger re-render
+        setUnreadCount(newUnreadCount);
+        lastKnownUnreadCountRef.current = newUnreadCount;
         
+        // Update tracking
+        lastAnnouncementCountRef.current = announcements.length;
         setLastFetchTime(now);
+        
         return newUnreadCount;
       });
       
@@ -171,148 +194,120 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('❌ Error fetching unread count:', error);
       if (error.response?.status === 401) {
+        console.log('🔒 Unauthorized - clearing tokens');
         setUser(null);
         setUnreadCount(0);
         localStorage.removeItem('cachedUser');
+        localStorage.removeItem('authToken');
       }
-      return unreadCount; // Return current count on error
+      return unreadCount;
     }
-  }, [user, unreadCount, lastFetchTime]);
+  }, [user, unreadCount, lastFetchTime, createAuthenticatedAxios]);
 
   const refreshUnreadCount = useCallback((reason = 'manual') => {
     if (!user || !user._id) {
-      // console.log('🔔 refreshUnreadCount: No user logged in, skipping refresh');
       return;
     }
-
-    // console.log(`🔔 refreshUnreadCount (${reason}): Triggering smart fetch`);
+    console.log(`🔄 refreshUnreadCount (${reason}): Triggering fetch`);
     fetchUnreadCount(reason);
   }, [fetchUnreadCount, user]);
 
-  // UPDATED: Adaptive polling system that reduces frequency when no new announcements
+  // ENHANCED: Storage event listener for cross-tab synchronization
+  useEffect(() => {
+    // Handle cross-tab localStorage changes
+    const handleStorageChange = (event) => {
+      if (event.key === 'seenAnnouncements' && user && user._id) {
+        console.log('📡 Cross-tab seenAnnouncements change detected');
+        setTimeout(() => fetchUnreadCount('storage-change'), 100);
+      }
+    };
+
+    // Handle same-tab localStorage changes
+    const handleCustomStorage = () => {
+      if (user && user._id) {
+        console.log('🔄 Same-tab storage update detected');
+        fetchUnreadCount('custom-storage');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('localStorageUpdated', handleCustomStorage);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageUpdated', handleCustomStorage);
+    };
+  }, [user, fetchUnreadCount]);
+
+  // Enhanced polling system with reduced intervals
   useEffect(() => {
     if (user && user._id) {
-      // console.log('🔔 Starting adaptive unread count monitoring for user:', user.email);
+      console.log('🔔 Starting unread count monitoring for user:', user.email);
       
-      // Reset polling state
-      const minPollingInterval = 5 * 60 * 1000;  // 5 minutes
-      const maxPollingInterval = 60 * 60 * 1000; // 60 minutes
-      currentPollingIntervalRef.current = document.hidden ? 10 * 60 * 1000 : minPollingInterval;
-      lastKnownUnreadCountRef.current = 0;
+      const minPollingInterval = 2 * 60 * 1000;  // 2 minutes
+      const maxPollingInterval = 15 * 60 * 1000; // 15 minutes max
+      currentPollingIntervalRef.current = minPollingInterval;
       
-      // Clear any existing polling
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
 
-      // ADAPTIVE: Polling handler that adjusts interval based on activity
       const pollHandler = async () => {
         if (!user || !user._id) return;
         
         try {
-          // console.log('🔔 Adaptive polling: Checking for changes');
-          const currentUnreadCount = await fetchUnreadCount('adaptive-polling');
+          const currentUnreadCount = await fetchUnreadCount('polling');
           const lastKnownCount = lastKnownUnreadCountRef.current;
           
-          // Check if there are new announcements (unread count increased or total count changed)
-          const hasNewActivity = currentUnreadCount > lastKnownCount || 
-                                lastAnnouncementCountRef.current !== lastKnownUnreadCountRef.current;
-          
+          const hasNewActivity = currentUnreadCount !== lastKnownCount;
           lastKnownUnreadCountRef.current = currentUnreadCount;
           
-          adjustPollingInterval(hasNewActivity);
+          // Adjust polling based on activity
+          if (hasNewActivity) {
+            console.log('🔔 Activity detected - resetting polling interval');
+            currentPollingIntervalRef.current = minPollingInterval;
+          } else {
+            const newInterval = Math.min(currentPollingIntervalRef.current * 1.2, maxPollingInterval);
+            currentPollingIntervalRef.current = newInterval;
+          }
+
+          // Restart with new interval
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+          pollingIntervalRef.current = setInterval(pollHandler, currentPollingIntervalRef.current);
           
         } catch (error) {
-          console.error('❌ Adaptive polling error:', error);
-          // On error, don't change interval - keep current frequency
+          console.error('❌ Polling error:', error);
         }
       };
 
-      // ADAPTIVE: Adjust polling interval based on activity
-      const adjustPollingInterval = (hasNewActivity) => {
-        const currentInterval = currentPollingIntervalRef.current;
-        
-        if (hasNewActivity) {
-          // Reset to minimum interval when new activity detected
-          // console.log('🔔 New activity detected - resetting to minimum polling interval');
-          currentPollingIntervalRef.current = minPollingInterval;
-        } else {
-          // Increase interval exponentially when no activity (max 60 minutes)
-          const newInterval = Math.min(currentInterval * 1.5, maxPollingInterval);
-          currentPollingIntervalRef.current = newInterval;
-          // console.log(`🔔 No new activity - increasing polling interval to ${newInterval / (60 * 1000)} minutes`);
-        }
-
-        // Restart polling with new interval
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-        }
-        
-        pollingIntervalRef.current = setInterval(pollHandler, currentPollingIntervalRef.current);
-        // console.log(`🔔 Adaptive polling restarted: ${currentPollingIntervalRef.current / (60 * 1000)} minute intervals`);
-      };
-
-      // Initial fetch
+      // Initial fetch and start polling
       fetchUnreadCount('initial').then(initialCount => {
         lastKnownUnreadCountRef.current = initialCount;
-        
-        // Start adaptive polling
         pollingIntervalRef.current = setInterval(pollHandler, currentPollingIntervalRef.current);
-        // console.log(`🔔 Started adaptive polling every ${currentPollingIntervalRef.current / (60 * 1000)} minutes`);
+        console.log(`🔔 Started polling every ${currentPollingIntervalRef.current / (60 * 1000)} minutes`);
       });
 
-      // ENHANCED: Event-driven updates
+      // Visibility change handler
       const handleVisibilityChange = () => {
         if (!document.hidden && user && user._id) {
-          // console.log('🔔 Tab visible: Resetting polling and fetching immediately');
-          
-          // Reset to minimum interval when tab becomes visible
+          console.log('👀 Tab visible: Fetching immediately');
           currentPollingIntervalRef.current = minPollingInterval;
-          
-          fetchUnreadCount('tab-visible').then(count => {
-            lastKnownUnreadCountRef.current = count;
-            
-            // Restart polling with minimum interval
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-            }
-            pollingIntervalRef.current = setInterval(pollHandler, currentPollingIntervalRef.current);
-            // console.log(`🔔 Tab visible: Polling reset to ${currentPollingIntervalRef.current / (60 * 1000)} minute intervals`);
-          });
-        } else if (document.hidden) {
-          // console.log('🔔 Tab hidden: Will use longer intervals on next adjustment');
+          fetchUnreadCount('tab-visible');
         }
       };
 
-      const handleAnnouncementUpdate = (event) => {
-        // console.log('🔔 Announcement update event detected - resetting polling interval');
-        currentPollingIntervalRef.current = minPollingInterval;
-        fetchUnreadCount('announcement-update');
-      };
-
-      const handleStorageChange = (event) => {
-        if (event.key === 'seenAnnouncements') {
-          // console.log('🔔 Seen announcements changed in another tab');
-          fetchUnreadCount('cross-tab-update');
-        }
-      };
-      
       document.addEventListener('visibilitychange', handleVisibilityChange);
-      window.addEventListener('announcementUpdated', handleAnnouncementUpdate);
-      window.addEventListener('storage', handleStorageChange);
       
       return () => {
-        // console.log('🔔 Stopping adaptive unread count monitoring');
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
-        window.removeEventListener('announcementUpdated', handleAnnouncementUpdate);
-        window.removeEventListener('storage', handleStorageChange);
       };
     } else {
-      // console.log('🔔 No user logged in, clearing unread count');
       setUnreadCount(0);
       lastAnnouncementCountRef.current = 0;
       lastKnownUnreadCountRef.current = 0;
@@ -329,10 +324,10 @@ export const AuthProvider = ({ children }) => {
         setUser(userData);
         localStorage.setItem('cachedUser', JSON.stringify(userData));
         
-        // console.log('🔔 User logged in, scheduling unread count fetch');
+        // Immediate fetch after login
         setTimeout(() => {
           fetchUnreadCount('login');
-        }, 1000);
+        }, 500);
         
         return userData;
       } else {
@@ -350,7 +345,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // console.log('🔔 User logged out, clearing all announcement data');
       setUser(null);
       setUnreadCount(0);
       setLastFetchTime(null);
@@ -358,44 +352,48 @@ export const AuthProvider = ({ children }) => {
       lastKnownUnreadCountRef.current = 0;
       localStorage.removeItem('cachedUser');
       localStorage.removeItem('seenAnnouncements');
-      localStorage.removeItem('announcementsBadgeCleared');
+      localStorage.removeItem('authToken'); // Clear auth token
     }
   }, []);
 
+  // FIXED: Enhanced markAllAsRead with authenticated requests
   const markAllAsRead = useCallback(async () => {
     if (!user || !user._id) {
-      // console.log('🔔 markAllAsRead: No user logged in');
       return;
     }
     
     try {
-      // console.log('🔔 markAllAsRead: Making API call');
-      const response = await axios.get('/api/announcements', { 
-        withCredentials: true 
-      });
+      console.log('🔔 markAllAsRead: Fetching announcements with token');
+      const authenticatedAxios = createAuthenticatedAxios();
+      const response = await authenticatedAxios.get('/api/announcements');
+      
       const announcements = response.data.announcements || [];
       const allIds = announcements.map(ann => ann._id || ann.id).filter(Boolean);
       
+      // Update localStorage
       localStorage.setItem('seenAnnouncements', JSON.stringify(allIds));
       
+      // Dispatch custom event for same-tab sync
+      window.dispatchEvent(new Event('localStorageUpdated'));
+      
+      // Mark as read on server
       const unreadAnnouncements = announcements.filter(ann => {
         const announcementId = ann._id || ann.id;
         return announcementId && (!ann.readBy || !ann.readBy.includes(user._id));
       });
 
-      unreadAnnouncements.forEach(async (ann) => {
+      for (const ann of unreadAnnouncements) {
         try {
-          await axios.post(`/api/announcements/${ann._id || ann.id}/read`, {}, {
-            withCredentials: true
-          });
+          await authenticatedAxios.post(`/api/announcements/${ann._id || ann.id}/read`, {});
         } catch (error) {
           console.warn('Failed to mark announcement as read on server:', error);
         }
-      });
+      }
       
+      // Immediate state update
       setUnreadCount(0);
       lastKnownUnreadCountRef.current = 0;
-      // console.log('🔔 All announcements marked as read - badge cleared');
+      console.log('✅ All announcements marked as read');
       
       window.dispatchEvent(new CustomEvent('markAllAnnouncementsRead'));
       window.dispatchEvent(new CustomEvent('announcementUpdated'));
@@ -403,11 +401,54 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Error marking announcements as read:', error);
     }
-  }, [user]);
+  }, [user, createAuthenticatedAxios]);
+
+  // FIXED: Enhanced markAnnouncementAsRead with authenticated requests
+  const markAnnouncementAsRead = useCallback((announcementId) => {
+    if (!user || !user._id || !announcementId) {
+      return;
+    }
+    
+    try {
+      let seenIds = [];
+      try {
+        const seenIdsRaw = localStorage.getItem('seenAnnouncements');
+        seenIds = seenIdsRaw ? JSON.parse(seenIdsRaw) : [];
+        seenIds = Array.isArray(seenIds) ? seenIds : [];
+      } catch (e) {
+        seenIds = [];
+      }
+      
+      if (!seenIds.includes(announcementId)) {
+        const updatedSeen = [...new Set([...seenIds, announcementId])];
+        localStorage.setItem('seenAnnouncements', JSON.stringify(updatedSeen));
+        
+        // Dispatch custom event for same-tab sync
+        window.dispatchEvent(new Event('localStorageUpdated'));
+        
+        // Immediate state update
+        setUnreadCount(prev => {
+          const newCount = Math.max(0, prev - 1);
+          lastKnownUnreadCountRef.current = newCount;
+          console.log(`🔔 Marked as read: ${announcementId}, new count: ${newCount}`);
+          return newCount;
+        });
+
+        // Server update with authentication
+        const authenticatedAxios = createAuthenticatedAxios();
+        authenticatedAxios.post(`/api/announcements/${announcementId}/read`, {}).catch(error => {
+          console.warn('Failed to mark announcement as read on server:', error);
+        });
+        
+        window.dispatchEvent(new CustomEvent('announcementUpdated'));
+      }
+    } catch (error) {
+      console.error('Error marking announcement as read:', error);
+    }
+  }, [user, createAuthenticatedAxios]);
 
   const handleNewAnnouncement = useCallback((newAnnouncementId) => {
     if (!user || !user._id) {
-      // console.log('🔔 handleNewAnnouncement: No user logged in');
       return;
     }
     
@@ -416,36 +457,8 @@ export const AuthProvider = ({ children }) => {
       setUnreadCount(prev => {
         const newCount = prev + 1;
         lastKnownUnreadCountRef.current = newCount;
-        // console.log(`🔔 New announcement detected, badge count: ${newCount}`);
+        console.log(`🆕 New announcement: ${newAnnouncementId}, count: ${newCount}`);
         return newCount;
-      });
-      
-      window.dispatchEvent(new CustomEvent('announcementUpdated'));
-    }
-  }, [user]);
-
-  const markAnnouncementAsRead = useCallback((announcementId) => {
-    if (!user || !user._id || !announcementId) {
-      // console.log('🔔 markAnnouncementAsRead: Missing user or announcementId');
-      return;
-    }
-    
-    const seenIds = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
-    if (!seenIds.includes(announcementId)) {
-      const updatedSeen = [...seenIds, announcementId];
-      localStorage.setItem('seenAnnouncements', JSON.stringify(updatedSeen));
-      
-      setUnreadCount(prev => {
-        const newCount = Math.max(0, prev - 1);
-        lastKnownUnreadCountRef.current = newCount;
-        // console.log(`🔔 Announcement ${announcementId} marked as read, badge count: ${newCount}`);
-        return newCount;
-      });
-
-      axios.post(`/api/announcements/${announcementId}/read`, {}, {
-        withCredentials: true
-      }).catch(error => {
-        console.warn('Failed to mark announcement as read on server:', error);
       });
       
       window.dispatchEvent(new CustomEvent('announcementUpdated'));
