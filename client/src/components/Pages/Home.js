@@ -496,14 +496,14 @@ const Home = () => {
       icon={FaPlay} 
     />
   </div>
-  {!user && (
+  {/* {!user && (
     <CTAButton 
       onClick={() => navigate('/sheets')} 
       text="Browse Sheets" 
       icon={FaArrowRight} 
       variant="secondary" 
     />
-  )}
+  )} */}
 </div>
 
                 </div>
