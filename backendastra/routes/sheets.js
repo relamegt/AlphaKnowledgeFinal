@@ -109,40 +109,40 @@ router.put('/:sheetId/sections/:sectionId', authenticateUser, requireRole(['admi
 // Delete section (admin only) - FIXED
 router.delete('/:sheetId/sections/:sectionId', authenticateUser, requireRole(['admin']), async (req, res) => {
   const { sheetId, sectionId } = req.params;
-  console.log('Starting deletion for section:', sectionId, 'from sheet:', sheetId);
+  // console.log('Starting deletion for section:', sectionId, 'from sheet:', sheetId);
 
   try {
     // First verify the sheet exists
     const sheetExists = await sheetModel.getSheetById(sheetId);
     if (!sheetExists) {
-      console.log('Sheet not found:', sheetId);
+      // console.log('Sheet not found:', sheetId);
       return res.status(404).json({ success: false, message: 'Sheet not found' });
     }
 
-    console.log('Sheet found, proceeding with section deletion');
+    // console.log('Sheet found, proceeding with section deletion');
 
     // Delete all progress for this section first (non-blocking)
     try {
-      console.log('Attempting to delete progress for section:', sectionId);
+      // console.log('Attempting to delete progress for section:', sectionId);
       await progressModel.deleteBySectionId(sectionId);
-      console.log('Successfully deleted progress for section:', sectionId);
+      // console.log('Successfully deleted progress for section:', sectionId);
     } catch (progressError) {
-      console.error('Warning: Error deleting progress for section:', sectionId, progressError.message);
+      // console.error('Warning: Error deleting progress for section:', sectionId, progressError.message);
       // Continue with section deletion even if progress deletion fails
     }
 
     // Delete the section from the sheet
-    console.log('Attempting to delete section data for section:', sectionId);
+    // console.log('Attempting to delete section data for section:', sectionId);
     const result = await sheetModel.deleteSection(sheetId, sectionId);
-    console.log('Raw deletion result:', result);
+    // console.log('Raw deletion result:', result);
 
     // Check if deletion was successful
     if (!result || !result.success || (result.modifiedCount !== undefined && result.modifiedCount === 0)) {
-      console.error('Section deletion failed - no documents were modified');
+      // console.error('Section deletion failed - no documents were modified');
       throw new Error('Section not found or could not be deleted from the sheet');
     }
 
-    console.log('Section deleted successfully:', sectionId);
+    // console.log('Section deleted successfully:', sectionId);
     res.json({ 
       success: true, 
       message: 'Section and all associated progress deleted successfully',

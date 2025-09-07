@@ -138,30 +138,30 @@ class Sheet {
 
   async deleteSection(sheetId, sectionId) {
   try {
-    console.log('Sheet model: Deleting section', sectionId, 'from sheet', sheetId);
+    // console.log('Sheet model: Deleting section', sectionId, 'from sheet', sheetId);
     
     // First verify the sheet exists and get current data
     const currentSheet = await this.collection.findOne({ id: sheetId });
     if (!currentSheet) {
-      console.log('Sheet not found:', sheetId);
+      // console.log('Sheet not found:', sheetId);
       throw new Error('Sheet not found');
     }
 
-    console.log('Found sheet, sections count:', currentSheet.sections ? currentSheet.sections.length : 0);
+    // console.log('Found sheet, sections count:', currentSheet.sections ? currentSheet.sections.length : 0);
 
     // Check if section exists in the sheet
     const sectionExists = currentSheet.sections && currentSheet.sections.some(section => section.id === sectionId);
     if (!sectionExists) {
-      console.log('Section not found in sheet:', sectionId);
+      // console.log('Section not found in sheet:', sectionId);
       throw new Error('Section not found in the sheet');
     }
 
-    console.log('Section exists, proceeding with deletion');
+    // console.log('Section exists, proceeding with deletion');
 
     // Use the array filter approach instead of $pull for DataStax compatibility
     const updatedSections = currentSheet.sections.filter(section => section.id !== sectionId);
     
-    console.log('Filtered sections count:', updatedSections.length);
+    // console.log('Filtered sections count:', updatedSections.length);
 
     const result = await this.collection.updateOne(
       { id: sheetId },
@@ -173,15 +173,15 @@ class Sheet {
       }
     );
 
-    console.log('Section deletion result:', result);
+    // console.log('Section deletion result:', result);
 
     // Check if the update was successful
     if (result.modifiedCount === 0) {
-      console.log('No documents were modified during section deletion');
+      // console.log('No documents were modified during section deletion');
       throw new Error('Failed to delete section - no documents were modified');
     }
 
-    console.log('Section deleted successfully');
+    // console.log('Section deleted successfully');
     return { 
       success: true, 
       modifiedCount: result.modifiedCount,

@@ -38,8 +38,8 @@ exports.verifyGoogleToken = async (req, res) => {
     const payload = ticket.getPayload();
     const { sub: googleId, email, name, picture } = payload;
 
-    console.log('✅ Google token verified for:', email);
-    console.log('📸 Google profile picture URL:', picture);
+    // console.log('✅ Google token verified for:', email);
+    // console.log('📸 Google profile picture URL:', picture);
 
     // Check if user exists
     let user = await userModel.findByGoogleId(googleId);
@@ -50,7 +50,7 @@ exports.verifyGoogleToken = async (req, res) => {
       user = await userModel.findByEmail(email);
       
       if (user) {
-        console.log('📝 Updating existing user with Google ID and profile picture');
+        // console.log('📝 Updating existing user with Google ID and profile picture');
         const shouldBeAdmin = isAdminEmail(email);
         const updates = { 
           googleId,
@@ -65,14 +65,14 @@ exports.verifyGoogleToken = async (req, res) => {
         user.name = name || user.name;
         
         if (shouldBeAdmin && user.role !== 'admin') {
-          console.log(`🔄 Promoting existing user ${email} to admin`);
+          // console.log(`🔄 Promoting existing user ${email} to admin`);
           user.role = 'admin';
         }
       } else {
         // Create new user with proper role assignment and profile picture
         const userRole = isAdminEmail(email) ? 'admin' : 'student';
         
-        console.log(`📝 Creating new user with role: ${userRole} (Email: ${email})`);
+        // console.log(`📝 Creating new user with role: ${userRole} (Email: ${email})`);
         
         user = await userModel.createUser({
           googleId,
@@ -85,15 +85,15 @@ exports.verifyGoogleToken = async (req, res) => {
         isNewUser = true;
         
         // FIXED: Send welcome email asynchronously (non-blocking)
-        console.log(`📧 Queuing welcome email for new user: ${email}`);
+        // console.log(`📧 Queuing welcome email for new user: ${email}`);
         
         // Don't await - fire and forget
         sendWelcomeEmail(user)
           .then((welcomeResult) => {
             if (welcomeResult.success) {
-              console.log(`✅ Welcome email sent successfully to: ${email}`);
+              // console.log(`✅ Welcome email sent successfully to: ${email}`);
             } else {
-              console.log(`⚠️ Welcome email failed for ${email}: ${welcomeResult.error}`);
+              // console.log(`⚠️ Welcome email failed for ${email}: ${welcomeResult.error}`);
             }
           })
           .catch((welcomeError) => {
@@ -101,10 +101,10 @@ exports.verifyGoogleToken = async (req, res) => {
           });
         
         // Continue with response immediately, don't wait for email
-        console.log(`📧 Welcome email queued for background processing`);
+        // console.log(`📧 Welcome email queued for background processing`);
       }
     } else {
-      console.log('✅ Existing user found, checking admin status and updating profile...');
+      // console.log('✅ Existing user found, checking admin status and updating profile...');
       
       const shouldBeAdmin = isAdminEmail(email);
       
@@ -114,7 +114,7 @@ exports.verifyGoogleToken = async (req, res) => {
       };
       
       if (shouldBeAdmin && user.role !== 'admin') {
-        console.log(`🔄 Promoting existing user ${email} to admin role`);
+        // console.log(`🔄 Promoting existing user ${email} to admin role`);
         updates.role = 'admin';
         user.role = 'admin';
       }
@@ -145,7 +145,7 @@ exports.verifyGoogleToken = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    console.log(`🎉 Authentication successful for ${user.name} (${user.role})`);
+    // console.log(`🎉 Authentication successful for ${user.name} (${user.role})`);
 
     // FIXED: Respond immediately, don't wait for email
     res.json({
@@ -198,7 +198,7 @@ exports.getCurrentUser = async (req, res) => {
 
     const shouldBeAdmin = isAdminEmail(user.email);
     if (shouldBeAdmin && user.role !== 'admin') {
-      console.log(`🔄 Auto-promoting ${user.email} to admin during getCurrentUser`);
+      // console.log(`🔄 Auto-promoting ${user.email} to admin during getCurrentUser`);
       await userModel.updateUserRole(user._id, 'admin');
       user.role = 'admin';
     }
