@@ -58,37 +58,49 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  // Silently check auth status on mount once
+  // Silently bootstrap auth status on mount once, only if token exists
   useEffect(() => {
     let mounted = true;
 
-    const checkAuthStatus = async () => {
+    const bootstrapAuth = async () => {
       try {
-        // Prime from cache for snappy UI
-        const cachedUser = localStorage.getItem('cachedUser');
-        if (cachedUser && mounted) {
-          const parsedUser = JSON.parse(cachedUser);
-          setUser(parsedUser);
+        const token = localStorage.getItem('authToken');
+
+        // If no token: skip network entirely, treat as logged-out
+        if (!token) {
+          setUser(null);
+          setLoading(false);
+          setInitialized(true);
+          return;
         }
 
-        // Attempt to get current user; API layer suppresses 401 to null
+        // With token: hydrate from cache for snappy UI
+        const cachedUser = localStorage.getItem('cachedUser');
+        if (cachedUser && mounted) {
+          try {
+            setUser(JSON.parse(cachedUser));
+          } catch {
+            // ignore malformed cache
+          }
+        }
+
+        // Validate/refresh user with backend (API layer suppresses 401 to null)
         const response = await authAPI.getCurrentUser();
-        if(!response.success) return;
         if (!mounted) return;
 
-        // Normalize user from either { user } or raw user in .data
         const userData = response?.user || response?.data?.user || null;
 
         if (userData) {
           setUser(userData);
           localStorage.setItem('cachedUser', JSON.stringify(userData));
         } else {
+          // Token invalid/expired: clear
           setUser(null);
           localStorage.removeItem('cachedUser');
+          localStorage.removeItem('authToken');
         }
       } catch {
         if (!mounted) return;
-        // Silent fallback to logged-out
         setUser(null);
         localStorage.removeItem('cachedUser');
       } finally {
@@ -99,7 +111,7 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    checkAuthStatus();
+    bootstrapAuth();
     return () => { mounted = false; };
   }, []);
 
@@ -138,7 +150,7 @@ export const AuthProvider = ({ children }) => {
           const seenIdsRaw = localStorage.getItem('seenAnnouncements');
           seenIds = seenIdsRaw ? JSON.parse(seenIdsRaw) : [];
           seenIds = Array.isArray(seenIds) ? seenIds : [];
-        } catch (e) {
+        } catch {
           seenIds = [];
           localStorage.setItem('seenAnnouncements', JSON.stringify([]));
         }
