@@ -38,12 +38,12 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [lastFetchTime, setLastFetchTime] = useState(null);
   
-  // Refs for stable references
+  // Refs for optimized polling
   const pollingIntervalRef = useRef(null);
   const broadcastChannelRef = useRef(null);
-  const lastFetchTimeRef = useRef(null);
-  const isFetchingRef = useRef(false);
+  const lastKnownCountRef = useRef(0);
 
   // Create authenticated axios instance
   const createAuthenticatedAxios = useCallback(() => {
@@ -104,37 +104,28 @@ export const AuthProvider = ({ children }) => {
     return () => { mounted = false; };
   }, []);
 
-  // FIXED: Stable fetchUnreadCount without dependencies that cause loops
+  // OPTIMIZED: Smart fetchUnreadCount - no throttling for event-driven calls
   const fetchUnreadCount = useCallback(async (reason = 'unknown', skipThrottle = false) => {
-    // Get current user from state
-    const currentUser = user;
-    if (!currentUser || !currentUser._id) {
+    if (!user || !user._id) {
       setUnreadCount(0);
       return 0;
     }
 
-    // Prevent overlapping requests
-    if (isFetchingRef.current) {
-      console.log(`⚠️ fetchUnreadCount (${reason}): Already fetching, skipping`);
-      return;
-    }
-
-    const requestKey = `unread-count-${currentUser._id}`;
+    const requestKey = `unread-count-${user._id}`;
     
     if (unreadCountTracker.isRequestOngoing(requestKey)) {
       return unreadCountTracker.getOngoingRequest(requestKey);
     }
 
-    // Throttling only for polling, not for events
+    // Only throttle for polling, not for events
     const now = Date.now();
-    if (!skipThrottle && lastFetchTimeRef.current && (now - lastFetchTimeRef.current) < 30000) {
-      console.log(`⚠️ fetchUnreadCount (${reason}): Throttled`);
-      return;
+    if (!skipThrottle && lastFetchTime && (now - lastFetchTime) < 30000) {
+      console.log(`⚠️ fetchUnreadCount (${reason}): Throttled, returning cached: ${unreadCount}`);
+      return unreadCount;
     }
 
     try {
       console.log(`🔔 fetchUnreadCount (${reason}): Making API call`);
-      isFetchingRef.current = true;
       
       const authenticatedAxios = createAuthenticatedAxios();
       
@@ -142,7 +133,7 @@ export const AuthProvider = ({ children }) => {
         const announcements = response.data.announcements || [];
         console.log(`📊 Retrieved ${announcements.length} total announcements`);
         
-        // Get seen announcements from localStorage
+        // Better localStorage handling
         let seenIds = [];
         try {
           const seenIdsRaw = localStorage.getItem('seenAnnouncements');
@@ -161,7 +152,7 @@ export const AuthProvider = ({ children }) => {
           if (!announcementId) return false;
           
           // Check server-side readBy
-          if (ann.readBy && Array.isArray(ann.readBy) && ann.readBy.includes(currentUser._id)) {
+          if (ann.readBy && Array.isArray(ann.readBy) && ann.readBy.includes(user._id)) {
             return false;
           }
           
@@ -171,9 +162,9 @@ export const AuthProvider = ({ children }) => {
           }
           
           // Check creation date vs user join date
-          if (currentUser.createdAt && ann.createdAt) {
+          if (user.createdAt && ann.createdAt) {
             const announcementDate = new Date(ann.createdAt);
-            const userJoinDate = new Date(currentUser.createdAt);
+            const userJoinDate = new Date(user.createdAt);
             if (announcementDate < userJoinDate) return false;
           }
           
@@ -183,121 +174,126 @@ export const AuthProvider = ({ children }) => {
         const newUnreadCount = unreadAnnouncements.length;
         console.log(`🔔 Calculated unread count: ${newUnreadCount}`);
         
-        // Update state
+        // Always update state to trigger re-render
         setUnreadCount(newUnreadCount);
-        lastFetchTimeRef.current = now;
+        lastKnownCountRef.current = newUnreadCount;
+        setLastFetchTime(now);
         
         return newUnreadCount;
-      }).finally(() => {
-        isFetchingRef.current = false;
       });
       
       return unreadCountTracker.startRequest(requestKey, fetchPromise);
       
     } catch (error) {
       console.error('❌ Error fetching unread count:', error);
-      isFetchingRef.current = false;
       if (error.response?.status === 401) {
         setUser(null);
         setUnreadCount(0);
         localStorage.removeItem('cachedUser');
         localStorage.removeItem('authToken');
       }
-      return 0;
+      return unreadCount;
     }
-  }, [user, createAuthenticatedAxios]);
+  }, [user, unreadCount, lastFetchTime, createAuthenticatedAxios]);
 
-  // FIXED: Single useEffect with stable dependencies
+  // OPTIMIZED: Event-driven system with BroadcastChannel
   useEffect(() => {
-    if (!user || !user._id) {
-      setUnreadCount(0);
-      return;
-    }
-
-    console.log('🔔 Setting up badge system for user:', user.email);
-    
-    // Setup BroadcastChannel for cross-tab communication
-    broadcastChannelRef.current = new BroadcastChannel('announcements');
-    
-    const handleBroadcast = (event) => {
-      console.log('📡 BroadcastChannel message:', event.data);
+    if (user && user._id) {
+      console.log('🔔 Starting optimized badge system for user:', user.email);
       
-      if (event.data.type === 'new-announcement') {
-        console.log('🆕 New announcement broadcast - updating badge');
-        fetchUnreadCount('broadcast-new', true);
-      } else if (event.data.type === 'mark-read') {
-        console.log('✅ Mark read broadcast - updating badge');
-        fetchUnreadCount('broadcast-read', true);
-      }
-    };
-    
-    broadcastChannelRef.current.addEventListener('message', handleBroadcast);
-    
-    // Initial fetch
-    fetchUnreadCount('user-login', true);
-    
-    // Setup polling with longer intervals - ONLY as fallback
-    const startPolling = () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
+      // 1. Setup BroadcastChannel for cross-tab communication
+      broadcastChannelRef.current = new BroadcastChannel('announcements');
       
-      pollingIntervalRef.current = setInterval(() => {
-        if (!document.hidden && user && user._id) {
-          console.log('🕰️ Fallback polling check');
-          fetchUnreadCount('fallback-polling');
+      const handleBroadcast = (event) => {
+        console.log('📡 BroadcastChannel message:', event.data);
+        
+        if (event.data.type === 'new-announcement') {
+          console.log('🆕 New announcement broadcast - updating badge immediately');
+          fetchUnreadCount('broadcast-new', true); // Skip throttling
+        } else if (event.data.type === 'mark-read') {
+          console.log('✅ Mark read broadcast - updating badge');
+          fetchUnreadCount('broadcast-read', true); // Skip throttling
         }
-      }, 5 * 60 * 1000); // 5 minutes instead of 10
+      };
       
-      console.log('🔔 Started fallback polling every 5 minutes');
-    };
-    
-    startPolling();
-    
-    // Handle visibility changes
-    const handleVisibilityChange = () => {
-      if (!document.hidden && user && user._id) {
-        console.log('👀 Tab visible: Fetching immediately');
-        fetchUnreadCount('tab-visible', true);
-      }
-    };
-    
-    // Handle storage changes (cross-tab sync)
+      broadcastChannelRef.current.addEventListener('message', handleBroadcast);
+      
+      // 2. Initial fetch on user login
+      fetchUnreadCount('user-login', true);
+      
+      // 3. Setup minimal fallback polling (every 10 minutes as safety net)
+      const startFallbackPolling = () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+        
+        pollingIntervalRef.current = setInterval(() => {
+          if (!document.hidden && user && user._id) {
+            console.log('🕰️ Fallback polling check');
+            fetchUnreadCount('fallback-polling');
+          }
+        }, 10 * 60 * 1000); // 10 minutes
+        
+        console.log('🔔 Started fallback polling every 10 minutes');
+      };
+      
+      startFallbackPolling();
+      
+      // 4. Handle visibility changes for immediate updates
+      const handleVisibilityChange = () => {
+        if (!document.hidden && user && user._id) {
+          console.log('👀 Tab visible: Fetching immediately');
+          fetchUnreadCount('tab-visible', true); // Skip throttling
+        }
+      };
+      
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      return () => {
+        console.log('🔔 Cleaning up optimized badge system');
+        
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.removeEventListener('message', handleBroadcast);
+          broadcastChannelRef.current.close();
+        }
+        
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+        
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
+    } else {
+      setUnreadCount(0);
+      lastKnownCountRef.current = 0;
+    }
+  }, [user, fetchUnreadCount]);
+
+  // ENHANCED: Storage event listener for localStorage synchronization
+  useEffect(() => {
     const handleStorageChange = (event) => {
-      if (event.key === 'seenAnnouncements') {
-        console.log('📡 localStorage changed in another tab');
-        fetchUnreadCount('storage-change', true);
+      if (event.key === 'seenAnnouncements' && user && user._id) {
+        console.log('📡 localStorage seenAnnouncements changed in another tab');
+        fetchUnreadCount('storage-change', true); // Skip throttling
       }
     };
 
-    // Handle custom storage events (same-tab sync)
+    // Handle same-tab localStorage changes
     const handleCustomStorage = () => {
-      console.log('🔄 Same-tab localStorage update');
-      fetchUnreadCount('custom-storage', true);
+      if (user && user._id) {
+        console.log('🔄 Same-tab localStorage update');
+        fetchUnreadCount('custom-storage', true); // Skip throttling
+      }
     };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('localStorageUpdated', handleCustomStorage);
     
     return () => {
-      console.log('🔔 Cleaning up badge system');
-      
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.removeEventListener('message', handleBroadcast);
-        broadcastChannelRef.current.close();
-      }
-      
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('localStorageUpdated', handleCustomStorage);
     };
-  }, [user?.email]); // ONLY depend on user.email, not the entire user object or fetchUnreadCount
+  }, [user, fetchUnreadCount]);
 
   // Utility function to broadcast announcement events
   const broadcastAnnouncementEvent = useCallback((type, data = {}) => {
@@ -310,16 +306,19 @@ export const AuthProvider = ({ children }) => {
       });
     }
     
+    // Also dispatch local event
     window.dispatchEvent(new CustomEvent('announcementUpdated', { 
       detail: { type, data } 
     }));
   }, []);
 
   const refreshUnreadCount = useCallback((reason = 'manual') => {
-    if (!user || !user._id) return;
+    if (!user || !user._id) {
+      return;
+    }
     console.log(`🔄 refreshUnreadCount (${reason}): Triggering immediate fetch`);
-    fetchUnreadCount(reason, true);
-  }, [user, fetchUnreadCount]);
+    fetchUnreadCount(reason, true); // Skip throttling for manual refresh
+  }, [fetchUnreadCount, user]);
 
   // Login with Google JWT token
   const loginWithToken = useCallback(async (googleToken) => {
@@ -348,16 +347,19 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       setUnreadCount(0);
-      lastFetchTimeRef.current = null;
+      setLastFetchTime(null);
+      lastKnownCountRef.current = 0;
       localStorage.removeItem('cachedUser');
       localStorage.removeItem('seenAnnouncements');
       localStorage.removeItem('authToken');
     }
   }, []);
 
-  // markAllAsRead with immediate broadcast
+  // OPTIMIZED: markAllAsRead with immediate broadcast
   const markAllAsRead = useCallback(async () => {
-    if (!user || !user._id) return;
+    if (!user || !user._id) {
+      return;
+    }
     
     try {
       console.log('🔔 markAllAsRead: Processing');
@@ -372,6 +374,7 @@ export const AuthProvider = ({ children }) => {
       
       // Immediate local update
       setUnreadCount(0);
+      lastKnownCountRef.current = 0;
       
       // Broadcast to other tabs
       broadcastAnnouncementEvent('mark-read', { 
@@ -379,10 +382,10 @@ export const AuthProvider = ({ children }) => {
         announcementIds: allIds 
       });
       
-      // Dispatch custom storage event
+      // Dispatch custom storage event for same-tab sync
       window.dispatchEvent(new Event('localStorageUpdated'));
       
-      // Server updates (async)
+      // Mark as read on server (async, don't wait)
       const unreadAnnouncements = announcements.filter(ann => {
         const announcementId = ann._id || ann.id;
         return announcementId && (!ann.readBy || !ann.readBy.includes(user._id));
@@ -395,16 +398,18 @@ export const AuthProvider = ({ children }) => {
         )
       );
       
-      console.log('✅ All announcements marked as read');
+      console.log('✅ All announcements marked as read - badge cleared immediately');
       
     } catch (error) {
       console.error('Error marking announcements as read:', error);
     }
   }, [user, createAuthenticatedAxios, broadcastAnnouncementEvent]);
 
-  // markAnnouncementAsRead with immediate broadcast
+  // OPTIMIZED: markAnnouncementAsRead with immediate broadcast
   const markAnnouncementAsRead = useCallback((announcementId) => {
-    if (!user || !user._id || !announcementId) return;
+    if (!user || !user._id || !announcementId) {
+      return;
+    }
     
     try {
       let seenIds = [];
@@ -423,6 +428,7 @@ export const AuthProvider = ({ children }) => {
         // Immediate local update
         setUnreadCount(prev => {
           const newCount = Math.max(0, prev - 1);
+          lastKnownCountRef.current = newCount;
           console.log(`🔔 Immediate update: ${announcementId} read, count: ${newCount}`);
           return newCount;
         });
@@ -433,10 +439,10 @@ export const AuthProvider = ({ children }) => {
           announcementId 
         });
         
-        // Dispatch custom storage event
+        // Dispatch custom storage event for same-tab sync
         window.dispatchEvent(new Event('localStorageUpdated'));
 
-        // Server update (async)
+        // Server update (async, don't wait)
         const authenticatedAxios = createAuthenticatedAxios();
         authenticatedAxios.post(`/api/announcements/${announcementId}/read`, {})
           .catch(error => console.warn('Failed to mark as read on server:', error));
@@ -446,9 +452,11 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user, createAuthenticatedAxios, broadcastAnnouncementEvent]);
 
-  // handleNewAnnouncement with immediate broadcast
+  // OPTIMIZED: handleNewAnnouncement with immediate broadcast
   const handleNewAnnouncement = useCallback((newAnnouncementId) => {
-    if (!user || !user._id) return;
+    if (!user || !user._id) {
+      return;
+    }
     
     console.log(`🆕 New announcement: ${newAnnouncementId} - updating badge immediately`);
     
@@ -457,6 +465,7 @@ export const AuthProvider = ({ children }) => {
       // Immediate local update
       setUnreadCount(prev => {
         const newCount = prev + 1;
+        lastKnownCountRef.current = newCount;
         console.log(`🔔 Immediate badge update: count ${newCount}`);
         return newCount;
       });
@@ -489,7 +498,7 @@ export const AuthProvider = ({ children }) => {
     refreshUnreadCount,
     handleNewAnnouncement,
     markAnnouncementAsRead,
-    broadcastAnnouncementEvent,
+    broadcastAnnouncementEvent, // Export for use in announcement creation
     isAdmin,
     isMentor,
     isStudent,
@@ -497,7 +506,8 @@ export const AuthProvider = ({ children }) => {
     canAddEditorials,
     canManageUsers,
     canManageSheets,
-    canAddProblems
+    canAddProblems,
+    lastFetchTime
   }), [
     user, 
     loginWithToken, 
@@ -517,7 +527,8 @@ export const AuthProvider = ({ children }) => {
     canAddEditorials,
     canManageUsers,
     canManageSheets,
-    canAddProblems
+    canAddProblems,
+    lastFetchTime
   ]);
 
   return (
