@@ -688,7 +688,7 @@ const SheetView = ({ sheetId, onBack }) => {
       {/* Background Effects */}
       <div className="absolute inset-0 overflow-hidden dark:block hidden">
         <div className="absolute top-10 left-10 w-72 h-72 bg-[#6366f1]/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-10 right-10 w-72 h-72 bg-[#a855f7]/10 rounded-full blur-3xl animate-pulse delay-1000" />
+        <div className="absolute bottom-10 right-10 w-72 h-72 bg-[#a855f7]/5 rounded-full blur-3xl animate-pulse delay-1000" />
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl animate-pulse delay-500" />
       </div>
 

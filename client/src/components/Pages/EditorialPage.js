@@ -539,7 +539,7 @@ If you're an admin or mentor, you can add an editorial link from the problem man
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-gray-950 dark:via-slate-900 dark:to-indigo-950/50 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[#a855f7]/10 dark:bg-slate-900 flex items-center justify-center px-4">
         <div className="text-center space-y-4 sm:space-y-6">
           <div className="relative">
             <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
@@ -658,7 +658,7 @@ If you're an admin or mentor, you can add an editorial link from the problem man
             {!editorial && !loading && (
               <div className="flex items-center justify-center h-64 sm:h-96">
                 <div className="text-center space-y-4 sm:space-y-6">
-                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-slate-400 to-slate-500 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r bg-purple-500/10 dark:bg-slate-900 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
                     <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                   </div>
                   <div>
