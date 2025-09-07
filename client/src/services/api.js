@@ -126,6 +126,89 @@ export const announcementAPI = {
 };
 
 // Include all your other APIs (adminAPI, contentAPI, etc.) unchanged...
+// FIXED: Admin APIs
+export const adminAPI = {
+  // User management
+  getUsers: () => api.get('/admin/users'),
+  updateUserRole: (userId, role) => api.put(`/admin/users/${userId}/role`, { role }),
+  deleteUser: (userId) => api.delete(`/admin/users/${userId}`),
+  createUser: (userData) => api.post('/admin/users', userData),
+  getUserDetails: (userId) => api.get(`/admin/users/${userId}`),
+  
+  // System management
+  getSystemStats: () => api.get('/admin/stats'),
+  getAuditLogs: (page = 1, limit = 50) => api.get(`/admin/audit-logs?page=${page}&limit=${limit}`),
+  
+  // Bulk operations
+  bulkUpdateUsers: (userUpdates) => api.put('/admin/users/bulk', { updates: userUpdates }),
+  bulkDeleteUsers: (userIds) => api.delete('/admin/users/bulk', { data: { userIds } }),
+  
+  // Settings management
+  getSettings: () => api.get('/admin/settings'),
+  updateSettings: (settings) => api.put('/admin/settings', settings)
+};
+
+
+// Content management APIs
+export const contentAPI = {
+  // Editorial management
+  getEditorials: () => api.get('/editorials'),
+  getEditorial: (problemId) => api.get(`/editorials/${problemId}`),
+  createEditorial: (problemId, data) => api.post(`/editorials/${problemId}`, data),
+  updateEditorial: (problemId, data) => api.put(`/editorials/${problemId}`, data),
+  deleteEditorial: (problemId) => api.delete(`/editorials/${problemId}`),
+  
+  // File uploads
+  uploadFile: (file, type = 'general') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    return api.post('/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  
+  // Template management
+  getTemplates: () => api.get('/templates'),
+  createTemplate: (data) => api.post('/templates', data),
+  updateTemplate: (id, data) => api.put(`/templates/${id}`, data),
+  deleteTemplate: (id) => api.delete(`/templates/${id}`)
+};
+
+
+// Analytics and reporting APIs
+export const analyticsAPI = {
+  getUserProgress: (userId, dateRange) => api.get(`/analytics/users/${userId}/progress?${dateRange}`),
+  getSheetAnalytics: (sheetId, dateRange) => api.get(`/analytics/sheets/${sheetId}?${dateRange}`),
+  getOverallStats: (dateRange) => api.get(`/analytics/overview?${dateRange}`),
+  getProblemStats: (problemId) => api.get(`/analytics/problems/${problemId}`),
+  getLeaderboard: (type = 'all', limit = 100) => api.get(`/analytics/leaderboard?type=${type}&limit=${limit}`),
+  exportAnalytics: (type, filters) => api.post(`/analytics/export`, { type, filters })
+};
+
+
+// Notification APIs
+export const notificationAPI = {
+  getNotifications: (userId) => api.get(`/notifications/${userId}`),
+  markAsRead: (notificationId) => api.put(`/notifications/${notificationId}/read`),
+  markAllAsRead: (userId) => api.put(`/notifications/${userId}/read-all`),
+  deleteNotification: (notificationId) => api.delete(`/notifications/${notificationId}`),
+  
+  // Admin notifications
+  createNotification: (data) => api.post('/notifications', data),
+  broadcastNotification: (data) => api.post('/notifications/broadcast', data)
+};
+
+
+// Search APIs
+export const searchAPI = {
+  searchProblems: (query, filters = {}) => api.get(`/search/problems?q=${encodeURIComponent(query)}&${new URLSearchParams(filters)}`),
+  searchSheets: (query, filters = {}) => api.get(`/search/sheets?q=${encodeURIComponent(query)}&${new URLSearchParams(filters)}`),
+  searchUsers: (query, filters = {}) => api.get(`/search/users?q=${encodeURIComponent(query)}&${new URLSearchParams(filters)}`),
+  globalSearch: (query) => api.get(`/search/global?q=${encodeURIComponent(query)}`)
+};
 
 // ENHANCED: Response interceptor
 api.interceptors.response.use(
