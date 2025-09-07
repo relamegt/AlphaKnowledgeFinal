@@ -82,7 +82,8 @@ export const authAPI = {
         // Accept 401 as valid to avoid rejection if interceptor ever changes
         validateStatus: (status) => (status >= 200 && status < 300) || status === 401
       });
-      if(!response.success) return;
+      // Removed erroneous `if (!response.success) return;`
+      // Normalize to null for no user
       return response?.data ?? null;
     } catch (error) {
       // Keep quiet on initial load
@@ -117,7 +118,8 @@ export const authAPI = {
 
   logout: async () => {
     try {
-      await api.post('/auth/logout', null, {
+      // Important: send undefined (no body), not null; avoid JSON parser error on server
+      await api.post('/auth/logout', undefined, {
         // Avoid rejection/noise in case backend returns 4xx on logout
         validateStatus: (s) => s >= 200 && s < 500
       });
