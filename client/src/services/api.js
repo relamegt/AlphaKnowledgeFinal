@@ -1,94 +1,115 @@
 import axios from 'axios';
 
-
-// FIXED: Use consistent environment variable name
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
-
+// FIXED: Production-ready environment variable
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://alphaknowledgefinal-1.onrender.com';
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`, // This creates the /api prefix
+  baseURL: `${API_BASE_URL}/api`,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // Add timeout
+  timeout: 30000, // Increased timeout for production
 });
 
-
-// FIXED: Auth API with better error handling
-export const authAPI = {
-  getCurrentUser: async () => {
-    try {
-      // console.log('🔍 API: Getting current user from /api/auth/user');
-      const response = await api.get('/auth/user');
-      return response.data;
-    } catch (error) {
-      // console.log('❌ Auth check failed:', error.response?.status, error.message);
-      return null;
-    }
-  },
-  logout: async () => {
-    try {
-      // console.log('🔍 API: Logging out via /api/auth/logout');
-      const response = await api.post('/auth/logout');
-      return response.data;
-    } catch (error) {
-      // console.error('❌ Logout failed:', error);
-      throw error;
-    }
-  },
-  verifyGoogleToken: async (token) => {
-    try {
-      // console.log('🔍 API: Verifying Google token via /api/auth/google/verify');
-      // console.log('🔗 Full URL:', `${API_BASE_URL}/api/auth/google/verify`);
-      const response = await api.post('/auth/google/verify', { token });
-      // console.log('✅ API: Token verification successful');
-      return response.data;
-    } catch (error) {
-      // console.error('❌ API: Token verification failed:', error.response?.status, error.response?.data || error.message);
-      throw error;
-    }
-  },
-};
-
-
-// FIXED: Progress API
-export const progressAPI = {
-  getUserProgress: (userId) => {
-    // console.log('🔍 API: Getting user progress for', userId);
-    return api.get(`/progress/${userId}`);
-  },
-  toggleProblem: (problemData) => {
-    // console.log('🔍 API: Toggling problem:', problemData);
-    return api.post('/progress/toggle', problemData);
-  },
-  getStats: (userId) => {
-    // console.log('🔍 API: Getting stats for user', userId);
-    return api.get(`/progress/stats/${userId}`);
-  }
-};
-
-
-// FIXED: Remove duplicate and conflicting interceptors
-// Request interceptor for auth token
+// FIXED: Enhanced request interceptor with better token handling
 api.interceptors.request.use(
   (config) => {
-    // console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+    // Try multiple token storage locations
+    const token = localStorage.getItem('authToken') || 
+                  localStorage.getItem('token') || 
+                  sessionStorage.getItem('authToken');
     
-    // Add auth token if available
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      // Use proper Bearer format (capital 'B')
+      config.headers['Authorization'] = `Bearer ${token}`;
+      console.log('🔐 Token added to request:', config.url);
+    } else {
+      console.log('⚠️ No token found for request:', config.url);
     }
     
     return config;
   },
   (error) => {
-    // console.error('❌ Request interceptor error:', error);
+    console.error('❌ Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
 
+// UPDATED: Auth API with proper token storage
+export const authAPI = {
+  getCurrentUser: async () => {
+    try {
+      const response = await api.get('/auth/user');
+      return response.data;
+    } catch (error) {
+      // Suppress 401 errors for getCurrentUser (expected when not logged in)
+      if (error.response?.status === 401 && error.config?.url?.includes('/auth/user')) {
+        return null;
+      }
+      console.error('❌ Unexpected auth check error:', error.response?.status, error.message);
+      return null;
+    }
+  },
+  
+  logout: async () => {
+    try {
+      const response = await api.post('/auth/logout');
+      
+      // Clear all tokens on logout
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('cachedUser');
+      
+      return response.data;
+    } catch (error) {
+      // Clear tokens even if logout fails
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('cachedUser');
+      
+      console.error('❌ Logout failed:', error);
+      throw error;
+    }
+  },
+  
+  verifyGoogleToken: async (token) => {
+    try {
+      console.log('🔐 Verifying Google token...');
+      const response = await api.post('/auth/google/verify', { token });
+      
+      // CRITICAL: Store the JWT token returned from backend
+      if (response.data.success) {
+        // Backend should return a JWT token in response
+        if (response.data.token) {
+          localStorage.setItem('authToken', response.data.token);
+          console.log('✅ JWT token stored successfully');
+        } else {
+          console.warn('⚠️ No JWT token received from backend');
+        }
+        
+        // Store user data
+        if (response.data.user) {
+          localStorage.setItem('cachedUser', JSON.stringify(response.data.user));
+          console.log('✅ User data cached');
+        }
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('❌ Token verification failed:', error.response?.status, error.response?.data || error.message);
+      throw error;
+    }
+  },
+};
+
+export const progressAPI = {
+  getUserProgress: (userId) => api.get(`/progress/${userId}`),
+  toggleProblem: (problemData) => api.post('/progress/toggle', problemData),
+  getStats: (userId) => api.get(`/progress/stats/${userId}`)
+};
 
 export const sheetAPI = {
   // Sheets
@@ -98,89 +119,33 @@ export const sheetAPI = {
   update: (id, data) => api.put(`/sheets/${id}`, data),
   delete: (id) => api.delete(`/sheets/${id}`),
 
-
   // Sections
-  addSection: (sheetId, data) => {
-    // console.log('🔍 API: Adding section to sheet', sheetId, 'with data:', data);
-    return api.post(`/sheets/${sheetId}/sections`, data);
-  },
-  updateSection: (sheetId, sectionId, data) => {
-    // console.log('🔍 API: Updating section', sectionId, 'with data:', data);
-    return api.put(`/sheets/${sheetId}/sections/${sectionId}`, data);
-  },
-  deleteSection: (sheetId, sectionId) => {
-    // console.log('🔍 API: Deleting section', sectionId, 'from sheet', sheetId);
-    return api.delete(`/sheets/${sheetId}/sections/${sectionId}`);
-  },
-
+  addSection: (sheetId, data) => api.post(`/sheets/${sheetId}/sections`, data),
+  updateSection: (sheetId, sectionId, data) => api.put(`/sheets/${sheetId}/sections/${sectionId}`, data),
+  deleteSection: (sheetId, sectionId) => api.delete(`/sheets/${sheetId}/sections/${sectionId}`),
 
   // Subsections
-  addSubsection: (sheetId, sectionId, data) => {
-    // console.log('🔍 API: Adding subsection to sheet', sheetId, 'section', sectionId, 'with data:', data);
-    return api.post(`/sheets/${sheetId}/sections/${sectionId}/subsections`, data);
-  },
-  updateSubsection: (sheetId, sectionId, subsectionId, data) => {
-    // console.log('🔍 API: Updating subsection', subsectionId, 'with data:', data);
-    return api.put(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}`, data);
-  },
-  deleteSubsection: (sheetId, sectionId, subsectionId) => {
-    // console.log('🔍 API: Deleting subsection', subsectionId);
-    return api.delete(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}`);
-  },
-
+  addSubsection: (sheetId, sectionId, data) => api.post(`/sheets/${sheetId}/sections/${sectionId}/subsections`, data),
+  updateSubsection: (sheetId, sectionId, subsectionId, data) => api.put(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}`, data),
+  deleteSubsection: (sheetId, sectionId, subsectionId) => api.delete(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}`),
 
   // Problems
-  addProblem: (sheetId, sectionId, subsectionId, data) => {
-    // console.log('🔍 API: Adding problem to sheet', sheetId, 'section', sectionId, 'subsection', subsectionId, 'with data:', data);
-    return api.post(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems`, data);
-  },
-  updateProblem: (sheetId, sectionId, subsectionId, problemId, data) => {
-    return api.put(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`, data);
-  },
-  updateProblemField: (sheetId, sectionId, subsectionId, problemId, data) => {
-    // console.log('🔍 API: Updating problem field', problemId, 'with data:', data);
-    return api.patch(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`, data);
-  },
-  deleteProblem: (sheetId, sectionId, subsectionId, problemId) => {
-    return api.delete(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`);
-  },
+  addProblem: (sheetId, sectionId, subsectionId, data) => api.post(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems`, data),
+  updateProblem: (sheetId, sectionId, subsectionId, problemId, data) => api.put(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`, data),
+  updateProblemField: (sheetId, sectionId, subsectionId, problemId, data) => api.patch(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`, data),
+  deleteProblem: (sheetId, sectionId, subsectionId, problemId) => api.delete(`/sheets/${sheetId}/sections/${sectionId}/subsections/${subsectionId}/problems/${problemId}`),
 };
 
-
-// FIXED: Announcement API with better logging
 export const announcementAPI = {
-  getAll: () => {
-    // console.log('🔍 API: Fetching all announcements with read status from /api/announcements');
-    return api.get('/announcements');
-  },
-  create: (data) => {
-    // console.log('🔍 API: Creating announcement with data:', data);
-    return api.post('/announcements', data);
-  },
-  update: (id, data) => {
-    // console.log('🔍 API: Updating announcement', id, 'with data:', data);
-    return api.put(`/announcements/${id}`, data);
-  },
-  delete: (id) => {
-    // console.log('🔍 API: Deleting announcement', id, 'via DELETE /api/announcements/' + id);
-    return api.delete(`/announcements/${id}`);
-  },
-  markAsRead: (id) => {
-    // console.log('🔍 API: Marking announcement as read:', id);
-    return api.post(`/announcements/${id}/read`);
-  },
-  getReadStatus: (id) => {
-    // console.log('🔍 API: Getting read status for announcement:', id);
-    return api.get(`/announcements/${id}/read-status`);
-  },
-  getUnreadCount: () => {
-    // console.log('🔍 API: Getting unread count');
-    return api.get('/announcements/unread-count');
-  },
+  getAll: () => api.get('/announcements'),
+  create: (data) => api.post('/announcements', data),
+  update: (id, data) => api.put(`/announcements/${id}`, data),
+  delete: (id) => api.delete(`/announcements/${id}`),
+  markAsRead: (id) => api.post(`/announcements/${id}/read`),
+  getReadStatus: (id) => api.get(`/announcements/${id}/read-status`),
+  getUnreadCount: () => api.get('/announcements/unread-count'),
 };
 
-
-// FIXED: Admin APIs
 export const adminAPI = {
   // User management
   getUsers: () => api.get('/admin/users'),
@@ -202,8 +167,6 @@ export const adminAPI = {
   updateSettings: (settings) => api.put('/admin/settings', settings)
 };
 
-
-// Content management APIs
 export const contentAPI = {
   // Editorial management
   getEditorials: () => api.get('/editorials'),
@@ -231,8 +194,6 @@ export const contentAPI = {
   deleteTemplate: (id) => api.delete(`/templates/${id}`)
 };
 
-
-// Analytics and reporting APIs
 export const analyticsAPI = {
   getUserProgress: (userId, dateRange) => api.get(`/analytics/users/${userId}/progress?${dateRange}`),
   getSheetAnalytics: (sheetId, dateRange) => api.get(`/analytics/sheets/${sheetId}?${dateRange}`),
@@ -242,8 +203,6 @@ export const analyticsAPI = {
   exportAnalytics: (type, filters) => api.post(`/analytics/export`, { type, filters })
 };
 
-
-// Notification APIs
 export const notificationAPI = {
   getNotifications: (userId) => api.get(`/notifications/${userId}`),
   markAsRead: (notificationId) => api.put(`/notifications/${notificationId}/read`),
@@ -255,8 +214,6 @@ export const notificationAPI = {
   broadcastNotification: (data) => api.post('/notifications/broadcast', data)
 };
 
-
-// Search APIs
 export const searchAPI = {
   searchProblems: (query, filters = {}) => api.get(`/search/problems?q=${encodeURIComponent(query)}&${new URLSearchParams(filters)}`),
   searchSheets: (query, filters = {}) => api.get(`/search/sheets?q=${encodeURIComponent(query)}&${new URLSearchParams(filters)}`),
@@ -264,11 +221,9 @@ export const searchAPI = {
   globalSearch: (query) => api.get(`/search/global?q=${encodeURIComponent(query)}`)
 };
 
-
-// FIXED: Response interceptor - single instance only
+// ENHANCED: Response interceptor with better error handling
 api.interceptors.response.use(
   (response) => {
-    // console.log(`✅ API Response: ${response.status} ${response.config.method?.toUpperCase()} ${response.config.url}`);
     return response;
   },
   (error) => {
@@ -276,55 +231,61 @@ api.interceptors.response.use(
     const url = error.config?.url;
     const method = error.config?.method?.toUpperCase();
     
-    // console.error(`❌ API Error: ${status} ${method} ${url}`, error.response?.data || error.message);
+    // Don't log suppressed 401 errors for /auth/user
+    if (!(status === 401 && url?.includes('/auth/user'))) {
+      console.error(`❌ API Error: ${status} ${method} ${url}`, error.response?.data || error.message);
+    }
     
-    // Handle common errors
-    if (status === 401) {
-      // console.log('🔒 Unauthorized access - clearing tokens');
+    // Handle authentication errors
+    if (status === 401 && !url?.includes('/auth/user')) {
+      console.log('🔒 Unauthorized access - clearing tokens');
       localStorage.removeItem('authToken');
       localStorage.removeItem('token');
-      // Only redirect if not already on login page
-      // if (window.location.pathname !== '/login') {
-      //   window.location.href = '/login';
-      // }
-    } else if (status === 404) {
-      // console.error(`🔍 Route not found: ${method} ${url}`);
-    } else if (status >= 500) {
-      // console.error('🚨 Server error:', error.response?.data);
+      localStorage.removeItem('cachedUser');
+      
+      // Redirect to home page
+      if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
+        window.location.href = '/';
+      }
     }
     
     return Promise.reject(error);
   }
 );
 
-
-// DEBUGGING: Add a test function to check if backend is reachable
+// Debug functions
 export const testAPI = {
   healthCheck: async () => {
     try {
-      // console.log('🩺 API: Testing backend connectivity');
-      // console.log('🔗 Testing URL:', `${API_BASE_URL}/api/health`);
+      console.log('🩺 Testing backend connectivity...');
+      console.log('🔗 Backend URL:', API_BASE_URL);
       const response = await api.get('/health');
-      // console.log('✅ Backend is reachable:', response.data);
+      console.log('✅ Backend is reachable:', response.data);
       return response.data;
     } catch (error) {
-      // console.error('❌ Backend connectivity test failed:', error);
+      console.error('❌ Backend connectivity test failed:', error);
       throw error;
     }
   },
+  
   testAuthHealth: async () => {
     try {
-      // console.log('🩺 API: Testing auth routes');
-      // console.log('🔗 Testing URL:', `${API_BASE_URL}/api/auth/health`);
+      console.log('🩺 Testing auth routes...');
       const response = await api.get('/auth/health');
-      // console.log('✅ Auth routes are working:', response.data);
+      console.log('✅ Auth routes are working:', response.data);
       return response.data;
     } catch (error) {
-      // console.error('❌ Auth routes test failed:', error);
+      console.error('❌ Auth routes test failed:', error);
       throw error;
     }
+  },
+
+  // NEW: Check if token is being sent
+  checkToken: () => {
+    const token = localStorage.getItem('authToken');
+    console.log('🔐 Current token in storage:', token ? 'Present' : 'Missing');
+    return token;
   }
 };
-
 
 export default api;
