@@ -284,9 +284,9 @@ api.interceptors.response.use(
       localStorage.removeItem('authToken');
       localStorage.removeItem('token');
       // Only redirect if not already on login page
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+      // if (window.location.pathname !== '/login') {
+      //   window.location.href = '/login';
+      // }
     } else if (status === 404) {
       // console.error(`🔍 Route not found: ${method} ${url}`);
     } else if (status >= 500) {
