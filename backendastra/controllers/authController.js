@@ -17,7 +17,7 @@ const isAdminEmail = (email) => {
   return adminEmails.includes(email.toLowerCase());
 };
 
-// FIXED: Non-blocking email sending to prevent timeout
+// FIXED: Return JWT token in response for frontend localStorage
 exports.verifyGoogleToken = async (req, res) => {
   try {
     const { token } = req.body;
@@ -39,18 +39,17 @@ exports.verifyGoogleToken = async (req, res) => {
     const { sub: googleId, email, name, picture } = payload;
 
     // console.log('✅ Google token verified for:', email);
-    // console.log('📸 Google profile picture URL:', picture);
 
     // Check if user exists
     let user = await userModel.findByGoogleId(googleId);
     let isNewUser = false;
     
     if (!user) {
-      // Check if user exists by email (for users who signed up before Google integration)
+      // Check if user exists by email
       user = await userModel.findByEmail(email);
       
       if (user) {
-        // console.log('📝 Updating existing user with Google ID and profile picture');
+        // console.log('📝 Updating existing user with Google ID');
         const shouldBeAdmin = isAdminEmail(email);
         const updates = { 
           googleId,
@@ -69,10 +68,10 @@ exports.verifyGoogleToken = async (req, res) => {
           user.role = 'admin';
         }
       } else {
-        // Create new user with proper role assignment and profile picture
+        // Create new user
         const userRole = isAdminEmail(email) ? 'admin' : 'student';
         
-        // console.log(`📝 Creating new user with role: ${userRole} (Email: ${email})`);
+        // console.log(`📝 Creating new user with role: ${userRole}`);
         
         user = await userModel.createUser({
           googleId,
@@ -84,37 +83,28 @@ exports.verifyGoogleToken = async (req, res) => {
         
         isNewUser = true;
         
-        // FIXED: Send welcome email asynchronously (non-blocking)
-        // console.log(`📧 Queuing welcome email for new user: ${email}`);
-        
-        // Don't await - fire and forget
+        // Send welcome email asynchronously
         sendWelcomeEmail(user)
           .then((welcomeResult) => {
             if (welcomeResult.success) {
-              // console.log(`✅ Welcome email sent successfully to: ${email}`);
-            } else {
-              // console.log(`⚠️ Welcome email failed for ${email}: ${welcomeResult.error}`);
+              // console.log(`✅ Welcome email sent to: ${email}`);
             }
           })
           .catch((welcomeError) => {
             console.error(`❌ Welcome email error for ${email}:`, welcomeError);
           });
-        
-        // Continue with response immediately, don't wait for email
-        // console.log(`📧 Welcome email queued for background processing`);
       }
     } else {
-      // console.log('✅ Existing user found, checking admin status and updating profile...');
+      // console.log('✅ Existing user found, updating profile...');
       
       const shouldBeAdmin = isAdminEmail(email);
-      
       const updates = {
         profilePicture: picture || user.profilePicture,
         name: name || user.name
       };
       
       if (shouldBeAdmin && user.role !== 'admin') {
-        // console.log(`🔄 Promoting existing user ${email} to admin role`);
+        // console.log(`🔄 Promoting user ${email} to admin`);
         updates.role = 'admin';
         user.role = 'admin';
       }
@@ -124,7 +114,7 @@ exports.verifyGoogleToken = async (req, res) => {
       user.name = name || user.name;
     }
 
-    // Create JWT token with updated user info
+    // Create JWT token
     const jwtToken = jwt.sign(
       { 
         userId: user._id,
@@ -137,20 +127,21 @@ exports.verifyGoogleToken = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Set HTTP-only cookie
+    // Set HTTP-only cookie (for additional security)
     res.cookie('authToken', jwtToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     // console.log(`🎉 Authentication successful for ${user.name} (${user.role})`);
 
-    // FIXED: Respond immediately, don't wait for email
+    // CRITICAL: Return JWT token in response body for frontend
     res.json({
       success: true,
       message: 'Authentication successful',
+      token: jwtToken, // ← This is what was missing!
       user: {
         _id: user._id,
         name: user.name,
@@ -159,9 +150,7 @@ exports.verifyGoogleToken = async (req, res) => {
         role: user.role
       },
       isNewUser,
-      isAdmin: user.role === 'admin',
-      // NEW: Indicate if welcome email is being sent
-      welcomeEmailStatus: isNewUser ? 'queued' : 'not_applicable'
+      isAdmin: user.role === 'admin'
     });
 
   } catch (error) {
@@ -173,15 +162,23 @@ exports.verifyGoogleToken = async (req, res) => {
   }
 };
 
-// Rest of the code remains the same...
+// FIXED: Support both cookie and Authorization header authentication
 exports.getCurrentUser = async (req, res) => {
   try {
-    const token = req.cookies.authToken;
+    // Try to get token from Authorization header first, then cookie
+    let token = null;
+    
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else {
+      token = req.cookies.authToken;
+    }
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'No authentication token'
+        message: 'No authentication token provided'
       });
     }
 
@@ -196,9 +193,10 @@ exports.getCurrentUser = async (req, res) => {
       });
     }
 
+    // Check admin status
     const shouldBeAdmin = isAdminEmail(user.email);
     if (shouldBeAdmin && user.role !== 'admin') {
-      // console.log(`🔄 Auto-promoting ${user.email} to admin during getCurrentUser`);
+      // console.log(`🔄 Auto-promoting ${user.email} to admin`);
       await userModel.updateUserRole(user._id, 'admin');
       user.role = 'admin';
     }
