@@ -58,37 +58,38 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  // Check auth status on mount
+  // Silently check auth status on mount once
   useEffect(() => {
     let mounted = true;
 
     const checkAuthStatus = async () => {
       try {
+        // Prime from cache for snappy UI
         const cachedUser = localStorage.getItem('cachedUser');
         if (cachedUser && mounted) {
           const parsedUser = JSON.parse(cachedUser);
           setUser(parsedUser);
-          setLoading(false);
         }
 
+        // Attempt to get current user; API layer suppresses 401 to null
         const response = await authAPI.getCurrentUser();
+        if (!mounted) return;
 
-        if (mounted && response) {
-          const userData = response.user || response.data?.user || null;
+        // Normalize user from either { user } or raw user in .data
+        const userData = response?.user || response?.data?.user || null;
 
-          if (userData) {
-            setUser(userData);
-            localStorage.setItem('cachedUser', JSON.stringify(userData));
-          } else {
-            setUser(null);
-            localStorage.removeItem('cachedUser');
-          }
-        }
-      } catch (error) {
-        if (mounted) {
+        if (userData) {
+          setUser(userData);
+          localStorage.setItem('cachedUser', JSON.stringify(userData));
+        } else {
           setUser(null);
           localStorage.removeItem('cachedUser');
         }
+      } catch {
+        if (!mounted) return;
+        // Silent fallback to logged-out
+        setUser(null);
+        localStorage.removeItem('cachedUser');
       } finally {
         if (mounted) {
           setLoading(false);
@@ -98,7 +99,6 @@ export const AuthProvider = ({ children }) => {
     };
 
     checkAuthStatus();
-
     return () => { mounted = false; };
   }, []);
 
@@ -184,7 +184,8 @@ export const AuthProvider = ({ children }) => {
       return unreadCountTracker.startRequest(requestKey, fetchPromise);
 
     } catch (error) {
-      if (error.response?.status === 401) {
+      // If announcements endpoint returns 401, consider user session invalid
+      if (error?.response?.status === 401) {
         setUser(null);
         if (lastKnownCountRef.current !== 0) {
           lastKnownCountRef.current = 0;
@@ -309,7 +310,7 @@ export const AuthProvider = ({ children }) => {
   const loginWithToken = useCallback(async (googleToken) => {
     try {
       const response = await authAPI.verifyGoogleToken(googleToken);
-      const userData = response.user || response.data?.user || null;
+      const userData = response?.user || response?.data?.user || null;
 
       if (userData) {
         setUser(userData);
@@ -326,7 +327,7 @@ export const AuthProvider = ({ children }) => {
   const logout = useCallback(async () => {
     try {
       await authAPI.logout();
-    } catch (error) {
+    } catch {
       // ignore
     } finally {
       setUser(null);
@@ -378,8 +379,8 @@ export const AuthProvider = ({ children }) => {
             .catch(() => {})
         )
       );
-    } catch (error) {
-      // ignore log
+    } catch {
+      // silent
     }
   }, [user?._id, createAuthenticatedAxios, broadcastAnnouncementEvent]);
 
@@ -393,7 +394,7 @@ export const AuthProvider = ({ children }) => {
         const seenIdsRaw = localStorage.getItem('seenAnnouncements');
         seenIds = seenIdsRaw ? JSON.parse(seenIdsRaw) : [];
         seenIds = Array.isArray(seenIds) ? seenIds : [];
-      } catch (e) {
+      } catch {
         seenIds = [];
       }
 
@@ -419,8 +420,8 @@ export const AuthProvider = ({ children }) => {
         authenticatedAxios.post(`/api/announcements/${announcementId}/read`, {})
           .catch(() => {});
       }
-    } catch (error) {
-      // ignore
+    } catch {
+      // silent
     }
   }, [user?._id, createAuthenticatedAxios, broadcastAnnouncementEvent]);
 
@@ -450,6 +451,11 @@ export const AuthProvider = ({ children }) => {
   const canManageSheets = isAdmin;
   const canAddProblems = isAdmin;
 
+  // Helper: gate protected pages (call inside route components)
+  const requireAuth = useCallback(() => {
+    return !!user?._id;
+  }, [user?._id]);
+
   const value = useMemo(() => ({
     user,
     loginWithToken,
@@ -469,7 +475,8 @@ export const AuthProvider = ({ children }) => {
     canAddEditorials,
     canManageUsers,
     canManageSheets,
-    canAddProblems
+    canAddProblems,
+    requireAuth
   }), [
     user,
     loginWithToken,
@@ -489,7 +496,8 @@ export const AuthProvider = ({ children }) => {
     canAddEditorials,
     canManageUsers,
     canManageSheets,
-    canAddProblems
+    canAddProblems,
+    requireAuth
   ]);
 
   return (
