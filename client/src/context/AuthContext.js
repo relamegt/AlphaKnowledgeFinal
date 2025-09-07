@@ -73,6 +73,7 @@ export const AuthProvider = ({ children }) => {
 
         // Attempt to get current user; API layer suppresses 401 to null
         const response = await authAPI.getCurrentUser();
+        if(!response.success) return;
         if (!mounted) return;
 
         // Normalize user from either { user } or raw user in .data

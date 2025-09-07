@@ -82,6 +82,7 @@ export const authAPI = {
         // Accept 401 as valid to avoid rejection if interceptor ever changes
         validateStatus: (status) => (status >= 200 && status < 300) || status === 401
       });
+      if(!response.success) return;
       return response?.data ?? null;
     } catch (error) {
       // Keep quiet on initial load
