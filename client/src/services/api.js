@@ -33,8 +33,8 @@ api.interceptors.request.use(
 );
 
 // ENHANCED: Response interceptor
-// - Swallow 401 for GET /auth/user by resolving to { data: null } to avoid noisy initial load errors
-// - For other 401s, clear tokens and optionally redirect
+// - Convert 401 for GET /auth/user into a success-like resolved response to avoid rejected Promise and console error
+// - For other 401s, clear tokens (optional redirect commented)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -42,10 +42,16 @@ api.interceptors.response.use(
     const url = error.config?.url || '';
     const method = (error.config?.method || 'get').toLowerCase();
 
-    // Suppress unauthenticated check for current user
+    // Suppress unauthenticated check for current user by resolving to a success-like response
     if (status === 401 && method === 'get' && url.includes('/auth/user')) {
-      // console.debug('Auth check 401 suppressed for /auth/user');
-      return Promise.resolve({ data: null });
+      return Promise.resolve({
+        data: null,
+        status: 200,            // normalize as OK to suppress red error indicator in console
+        statusText: 'OK',
+        headers: error.response?.headers || {},
+        config: error.config,
+        request: error.request
+      });
     }
 
     // if (!(status === 401 && url?.includes('/auth/user'))) {
@@ -68,15 +74,17 @@ api.interceptors.response.use(
   }
 );
 
-// FIXED: Auth API with proper token storage
+// FIXED: Auth API with proper token storage and 401 suppression on initial load
 export const authAPI = {
   getCurrentUser: async () => {
     try {
-      const response = await api.get('/auth/user');
+      const response = await api.get('/auth/user', {
+        // Accept 401 as valid to avoid rejection if interceptor ever changes
+        validateStatus: (status) => (status >= 200 && status < 300) || status === 401
+      });
       return response?.data ?? null;
     } catch (error) {
-      // 401 is already swallowed by interceptor; keep quiet on other errors
-      // console.error('❌ Auth check error:', error.response?.status, error.message);
+      // Keep quiet on initial load
       return null;
     }
   },
@@ -108,7 +116,10 @@ export const authAPI = {
 
   logout: async () => {
     try {
-      await api.post('/auth/logout');
+      await api.post('/auth/logout', null, {
+        // Avoid rejection/noise in case backend returns 4xx on logout
+        validateStatus: (s) => s >= 200 && s < 500
+      });
     } finally {
       localStorage.removeItem('authToken');
       localStorage.removeItem('cachedUser');
