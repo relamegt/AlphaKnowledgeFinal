@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import toast from 'react-hot-toast'; // ✅ Added missing import
+import toast from 'react-hot-toast';
 import { 
   FaExternalLinkAlt, 
   FaYoutube, 
@@ -15,7 +15,9 @@ import {
   FaPlus,
   FaEdit,
   FaTrash,
-  FaSave
+  FaSave,
+  FaBookmark,
+  FaRegBookmark
 } from 'react-icons/fa';
 import { 
   ChevronRight,
@@ -32,7 +34,6 @@ import LoginButton from '../Auth/LoginButton';
 import YouTubeModal from '../Common/YouTubeModal';
 import { sheetAPI } from '../../services/api';
 
-
 // Reusable Editable Cell Component
 const EditableCell = ({ 
   value, 
@@ -43,7 +44,7 @@ const EditableCell = ({
   placeholder = '', 
   renderValue,
   className = '',
-  disabled = false // ✅ Added disabled prop
+  disabled = false
 }) => {
   const [editing, setEditing] = useState(false);
   const [tempValue, setTempValue] = useState(value || '');
@@ -180,20 +181,22 @@ const ProblemItem = ({
   onUpdateProblem, 
   onDeleteProblem,
   canManageSheets,
-  onProgress // ✅ Added callback for progress updates
+  onProgress
 }) => {
   const { user, canAddEditorials } = useAuth();
-  const { toggleProblem, isProblemCompleted, refreshStats } = useProgress(); // ✅ Added refreshStats
+  const { toggleProblem, toggleRevision, isProblemCompleted, isProblemMarkedForRevision, refreshStats } = useProgress();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
+  const [isTogglingRevision, setIsTogglingRevision] = useState(false);
   const [localProblem, setLocalProblem] = useState(problem);
   const [editingEditorial, setEditingEditorial] = useState(false);
   const [tempEditorialValue, setTempEditorialValue] = useState('');
-  const [updating, setUpdating] = useState(false); // ✅ Added missing state
-  const [deleting, setDeleting] = useState(false); // ✅ Added missing state
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   
   const isCompleted = isProblemCompleted(problem.id);
+  const isMarkedForRevision = isProblemMarkedForRevision(problem.id);
 
   useEffect(() => {
     setLocalProblem(problem);
@@ -323,9 +326,8 @@ const ProblemItem = ({
       
       if (success) {
         toast.success(isCompleted ? 'Problem marked as incomplete' : 'Problem completed! 🎉');
-        // ✅ Refresh progress stats immediately
         await refreshStats();
-        if (onProgress) onProgress(); // Trigger parent refresh if callback provided
+        if (onProgress) onProgress();
       } else {
         toast.error('Failed to update problem status');
       }
@@ -337,6 +339,38 @@ const ProblemItem = ({
     }
   };
 
+  const handleRevisionToggle = async () => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+    
+    setIsTogglingRevision(true);
+    try {
+      const success = await toggleRevision({
+        problemId: problem.id,
+        sheetId,
+        sectionId,
+        subsectionId,
+        difficulty: problem.difficulty,
+        markedForRevision: !isMarkedForRevision
+      });
+      
+      if (success) {
+        toast.success(isMarkedForRevision ? 'Removed from revision list' : 'Added to revision list! 📚');
+        await refreshStats();
+        if (onProgress) onProgress();
+      } else {
+        toast.error('Failed to update revision status');
+      }
+    } catch (error) {
+      console.error('Failed to toggle revision status:', error);
+      toast.error('Failed to update revision status. Please try again.');
+    } finally {
+      setIsTogglingRevision(false);
+    }
+  };
+
   const handleViewEditorial = () => {
     if (!isEmpty(localProblem.editorialLink)) {
       const editorialPath = `/editorial/${problem.id}`;
@@ -344,7 +378,6 @@ const ProblemItem = ({
     }
   };
 
-  // ✅ Enhanced delete with loading toast and progress refresh
   const handleDeleteProblem = async () => {
     if (!canManageSheets) {
       toast.error('You do not have permission to delete problems.');
@@ -368,20 +401,18 @@ const ProblemItem = ({
       
       toast.success(`Problem "${localProblem.title || 'Untitled'}" deleted successfully! 🗑️`, { id: loadingToast });
       
-      // ✅ Refresh progress stats immediately after deletion
       await refreshStats();
-      if (onProgress) onProgress(); // Trigger parent refresh if callback provided
+      if (onProgress) onProgress();
       
     } catch (error) {
       console.error('Error deleting problem:', error);
       toast.error(`Failed to delete problem: ${error.response?.data?.message || error.message}`, { id: loadingToast });
-      setDeleting(false); // Reset loading state on error
+      setDeleting(false);
     }
-    // Note: Don't reset deleting state on success as component will unmount
   };
 
   const handleLoginSuccess = (userData) => {
-    setShowAuthModal(false); // Just close the modal
+    setShowAuthModal(false);
   };
 
   // Enhanced Authentication Modal with Problem Data Display
@@ -432,7 +463,7 @@ const ProblemItem = ({
             
             {/* Subtitle */}
             <p className="text-gray-600 dark:text-gray-400 text-lg mb-8 max-w-md mx-auto leading-relaxed">
-              Sign in to mark problems as completed and track your progress
+              Sign in to mark problems as completed, add to revision list, and track your progress
             </p>
 
             {/* Problem Info Display */}
@@ -455,7 +486,7 @@ const ProblemItem = ({
                 )}
               </div>
               <p className="text-gray-600 dark:text-gray-400">
-                After signing in, you can click the checkbox to mark this problem as completed!
+                After signing in, you can mark this problem as completed or add it to your revision list!
               </p>
             </div>
 
@@ -501,7 +532,9 @@ const ProblemItem = ({
         transition-all duration-200 hover:border-gray-300 dark:hover:border-white/20
         ${isDisabled ? 'opacity-70' : ''}
         ${isCompleted 
-          ? 'bg-gradient-to-r from-green-50/50 via-white to-green-50/30 dark:from-green-500/10 dark:via-slate-800 dark:to-green-500/5' 
+          ? (isMarkedForRevision 
+              ? 'bg-gradient-to-r from-orange-50/50 via-white to-orange-50/30 dark:from-orange-500/10 dark:via-slate-800 dark:to-orange-500/5'
+              : 'bg-gradient-to-r from-green-50/50 via-white to-green-50/30 dark:from-green-500/10 dark:via-slate-800 dark:to-green-500/5')
           : index % 2 === 0 
             ? 'bg-white dark:bg-slate-800' 
             : 'bg-gray-50/50 dark:bg-slate-700/50'
@@ -509,7 +542,7 @@ const ProblemItem = ({
         hover:shadow-sm hover:bg-gray-50/80 dark:hover:bg-slate-700/80
       `}>
         
-        {/* Modern Status Checkbox */}
+        {/* Modern Status Checkbox with Color-coded Tick */}
         <td className="p-3 sm:p-4 text-center border-r border-gray-200/20 dark:border-white/10">
           <div className="flex items-center justify-center relative">
             <button
@@ -520,10 +553,13 @@ const ProblemItem = ({
                 transition-all duration-300 transform hover:scale-110 active:scale-95
                 disabled:opacity-70 disabled:cursor-not-allowed
                 ${isCompleted 
-                  ? 'bg-green-500 border-green-500 shadow-md shadow-green-500/30' 
+                  ? (isMarkedForRevision
+                      ? 'bg-orange-500 border-orange-500 shadow-md shadow-orange-500/30' 
+                      : 'bg-green-500 border-green-500 shadow-md shadow-green-500/30')
                   : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-white/30 hover:border-green-400 dark:hover:border-green-400 hover:shadow-sm'
                 }
               `}
+              title={isCompleted ? (isMarkedForRevision ? "Solved (Marked for Revision)" : "Solved") : "Mark as solved"}
             >
               {isToggling ? (
                 <FaSpinner className="w-3 h-3 animate-spin text-green-500" />
@@ -534,7 +570,7 @@ const ProblemItem = ({
           </div>
         </td>
 
-        {/* Problem Title */}
+        {/* Problem Title - Only show "Solved" text, no revision badge */}
         <EditableCell
           value={localProblem.title}
           onSave={(value) => updateField('title', value)}
@@ -552,7 +588,10 @@ const ProblemItem = ({
                 )}
               </span>
               {isCompleted && !isToggling && (
-                <span className="bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">
+                <span className={`
+                  text-white px-2 py-0.5 rounded-full text-xs font-medium
+                  ${isMarkedForRevision ? 'bg-orange-500' : 'bg-green-500'}
+                `}>
                   Solved
                 </span>
               )}
@@ -560,7 +599,67 @@ const ProblemItem = ({
           )}
         />
 
-        {/* Editorial Link */}
+        {/* Practice Link - MOVED TO THIRD POSITION */}
+        <EditableCell
+          value={localProblem.practiceLink}
+          onSave={(value) => updateField('practiceLink', value)}
+          isEditable={canEditField('practiceLink')}
+          disabled={isDisabled}
+          type="url"
+          placeholder="Enter practice URL"
+          renderValue={(value) => 
+            !isEmpty(value) ? (
+              <a
+                href={value}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-all duration-200 transform hover:scale-110 active:scale-95 mx-auto flex items-center justify-center gap-1"
+                title="Solve on platform"
+              >
+                <FaExternalLinkAlt className="w-4 h-4 group-hover:scale-110 transition-all duration-200" />
+                <span className="hidden sm:inline text-sm font-semibold text-gray-700 dark:text-gray-300">Solve</span>
+              </a>
+            ) : canEditField('practiceLink') && !isDisabled ? (
+              <button
+                title="Add practice link"
+                className="group text-gray-400 dark:text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all duration-200 transform hover:scale-110 active:scale-95 mx-auto flex items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-2"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            ) : (
+              <span className="text-gray-400 dark:text-gray-500 text-sm font-medium">—</span>
+            )
+          }
+        />
+
+        {/* Revision Toggle - MOVED TO FOURTH POSITION */}
+        <td className="p-3 sm:p-4 text-center border-r border-gray-200/20 dark:border-white/10">
+          <div className="flex items-center justify-center relative">
+            <button
+              onClick={handleRevisionToggle}
+              disabled={isTogglingRevision || isDisabled}
+              className={`
+                transition-all duration-300 transform hover:scale-110 active:scale-95
+                disabled:opacity-70 disabled:cursor-not-allowed
+                ${isMarkedForRevision 
+                  ? 'text-orange-500 hover:text-orange-600' 
+                  : 'text-gray-400 dark:text-gray-500 hover:text-orange-500'
+                }
+              `}
+              title={isMarkedForRevision ? "Remove from revision list" : "Add to revision list"}
+            >
+              {isTogglingRevision ? (
+                <FaSpinner className="w-5 h-5 animate-spin" />
+              ) : isMarkedForRevision ? (
+                <FaBookmark className="w-5 h-5" />
+              ) : (
+                <FaRegBookmark className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        </td>
+
+        {/* Editorial Link - MOVED TO FIFTH POSITION */}
         <td className="p-3 sm:p-4 text-center border-r border-gray-200/20 dark:border-white/10">
           <div className="flex items-center justify-center space-x-2">
             {editingEditorial ? (
@@ -629,7 +728,7 @@ const ProblemItem = ({
           </div>
         </td>
 
-        {/* Video Link */}
+        {/* Video Link - MOVED TO SIXTH POSITION */}
         <EditableCell
           value={localProblem.youtubeLink}
           onSave={(value) => updateField('youtubeLink', value)}
@@ -660,7 +759,7 @@ const ProblemItem = ({
           }
         />
 
-        {/* Notes Link */}
+        {/* Notes Link - MOVED TO SEVENTH POSITION */}
         <EditableCell
           value={localProblem.notesLink}
           onSave={(value) => updateField('notesLink', value)}
@@ -683,39 +782,6 @@ const ProblemItem = ({
               <button
                 title="Add notes"
                 className="group text-gray-400 dark:text-gray-500 hover:text-[#6366f1] dark:hover:text-blue-400 transition-all duration-200 transform hover:scale-110 active:scale-95 mx-auto flex items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-2"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            ) : (
-              <span className="text-gray-400 dark:text-gray-500 text-sm font-medium">—</span>
-            )
-          }
-        />
-
-        {/* Practice Link */}
-        <EditableCell
-          value={localProblem.practiceLink}
-          onSave={(value) => updateField('practiceLink', value)}
-          isEditable={canEditField('practiceLink')}
-          disabled={isDisabled}
-          type="url"
-          placeholder="Enter practice URL"
-          renderValue={(value) => 
-            !isEmpty(value) ? (
-              <a
-                href={value}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-all duration-200 transform hover:scale-110 active:scale-95 mx-auto flex items-center justify-center gap-1"
-                title="Solve on platform"
-              >
-                <FaExternalLinkAlt className="w-4 h-4 group-hover:scale-110 transition-all duration-200" />
-                <span className="hidden sm:inline text-sm font-semibold text-gray-700 dark:text-gray-300">Solve</span>
-              </a>
-            ) : canEditField('practiceLink') && !isDisabled ? (
-              <button
-                title="Add practice link"
-                className="group text-gray-400 dark:text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all duration-200 transform hover:scale-110 active:scale-95 mx-auto flex items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-2"
               >
                 <Plus className="w-4 h-4" />
               </button>

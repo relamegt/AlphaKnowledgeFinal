@@ -131,11 +131,13 @@ export const authAPI = {
   },
 };
 
-// Keep all your existing APIs (progressAPI, sheetAPI, etc.) unchanged...
+// Progress API with revision support
 export const progressAPI = {
   getUserProgress: (userId) => api.get(`/progress/${userId}`),
   toggleProblem: (problemData) => api.post('/progress/toggle', problemData),
-  getStats: (userId) => api.get(`/progress/stats/${userId}`)
+  toggleRevision: (problemData) => api.post('/progress/toggle-revision', problemData),
+  getStats: (userId) => api.get(`/progress/stats/${userId}`),
+  getRevisionProblems: (userId) => api.get(`/progress/revision/${userId}`)
 };
 
 export const sheetAPI = {

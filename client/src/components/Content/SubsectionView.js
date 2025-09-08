@@ -16,7 +16,8 @@ import {
   FaSave,
   FaTimes,
   FaSpinner,
-  FaGraduationCap
+  FaGraduationCap,
+  FaBookmark
 } from 'react-icons/fa';
 
 // Inline Editable Component
@@ -574,7 +575,8 @@ const SubsectionView = ({
                 /{progress.total}
               </span>
             </div>
-                        {/* Completion Badge */}
+            
+            {/* Completion Badge */}
             {percentage === 100 && progress.total > 0 && (
               <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-gray-800 animate-bounce">
                 <FaCheckCircle className="w-2 h-2 text-white" />
@@ -628,46 +630,52 @@ const SubsectionView = ({
             {/* Table Container */}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
-                {/* Table Header with Brand Gradient */}
+                {/* Table Header with Brand Gradient - UPDATED ORDER */}
                 <thead>
                   <tr className="bg-gradient-to-r from-[#6366f1]/10 via-[#a855f7]/5 to-[#6366f1]/10 dark:from-[#6366f1]/20 dark:via-[#a855f7]/10 dark:to-[#6366f1]/20 border-b-2 border-[#6366f1]/20 dark:border-white/20 backdrop-blur-sm">
-                    <th className="p-3 sm:p-4 text-left font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[8%]">
+                    <th className="p-3 sm:p-4 text-left font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[6%]">
                       <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
                         <span>Status</span>
                       </div>
                     </th>
-                    <th className="p-3 sm:p-4 text-left font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[22%]">
+                    <th className="p-3 sm:p-4 text-left font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[18%]">
                       <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-gradient-to-r from-[#a855f7] to-[#6366f1] rounded-full"></div>
                         <span>Problem</span>
                       </div>
                     </th>
-                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[11%]">
-                      <div className="flex items-center justify-center space-x-2">
-                        <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
-                        <span>Editorial</span>
-                      </div>
-                    </th>
-                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[11%]">
-                      <div className="flex items-center justify-center space-x-2">
-                        <div className="w-2 h-2 bg-gradient-to-r from-[#a855f7] to-[#6366f1] rounded-full"></div>
-                        <span>Video</span>
-                      </div>
-                    </th>
-                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[11%]">
-                      <div className="flex items-center justify-center space-x-2">
-                        <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
-                        <span>Notes</span>
-                      </div>
-                    </th>
-                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[11%]">
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[9%]">
                       <div className="flex items-center justify-center space-x-2">
                         <div className="w-2 h-2 bg-gradient-to-r from-[#a855f7] to-[#6366f1] rounded-full"></div>
                         <span>Practice</span>
                       </div>
                     </th>
-                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[15%]">
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[8%]">
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
+                        <span>Revision</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[9%]">
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
+                        <span>Editorial</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[9%]">
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-2 h-2 bg-gradient-to-r from-[#a855f7] to-[#6366f1] rounded-full"></div>
+                        <span>Video</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[9%]">
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
+                        <span>Notes</span>
+                      </div>
+                    </th>
+                    <th className="p-3 sm:p-4 text-center font-semibold text-gray-800 dark:text-gray-200 text-xs uppercase tracking-wider w-[12%]">
                       <div className="flex items-center justify-center space-x-2">
                         <div className="w-2 h-2 bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full"></div>
                         <span>Difficulty</span>
@@ -697,6 +705,7 @@ const SubsectionView = ({
                       onUpdateProblem={onUpdateProblem}
                       onDeleteProblem={onDeleteProblem}
                       canManageSheets={canManageSheets}
+                      onProgress={() => {}} // Refresh callback
                     />
                   ))}
                 </tbody>
@@ -757,5 +766,3 @@ const SubsectionView = ({
 };
 
 export default SubsectionView;
-
-              
